@@ -1,0 +1,228 @@
+---
+title: 'Titanic : Machine Learning from disaster'
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    fig_height: 12
+    fig_width: 12
+    highlight: tango
+    theme: united
+---
+
+
+```{r include = FALSE, cache = FALSE, echo = FALSE}
+# Load packages
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(randomForest)
+library(rattle)
+
+# Load All Data
+load("/home/amey/Downloads/Data/all_data.RData") 
+
+# Assign the training set
+train <- read.csv("/media/amey/1E02DDE102DDBDC9/Amey/Work/Data A/Assignments/Titanic kaggle/train.csv")
+
+# Assign the testing set
+test <- read.csv("/media/amey/1E02DDE102DDBDC9/Amey/Work/Data A/Assignments/Titanic kaggle/test.csv")
+
+# Training and testing set
+print(train)
+print(test)
+
+```
+
+
+### Introduction
+
+
+The objective of this project was to complete the analysis of what sorts of people were likely to survive. In particular , the kaggle competition ask's you to apply the tools of machine learning to predict which passengers survived the tragedy.
+
+
+### First prediction
+
+
+My first analysis was studing the structure of data and to find out how many passangers have survived and how many have passed away. The table command helped me explore if a variable has any predictive value. The variables that had influence on the survival rate were gender and age. Using these variables i made a simple prediction on the test dataset.
+
+
+```{r, message = FALSE, warning = FALSE}
+# Structure of training and test set
+str(train)
+str(test)
+
+# Passengers that survived vs passengers that passed away
+
+table(train$Survived)
+prop.table(table(train$Survived)) 
+
+# Males & females that survived vs males & females that passed away
+table(train$Sex, train$Survived)
+prop.table(table(train$Sex, train$Survived), 1)
+
+# Create the column child, and indicate whether child or no child
+train$Child <- NA
+train$Child[train$Age < 18] <- 1
+train$Child[train$Age >= 18] <- 0
+
+# Two-way comparison
+table(train$Child, train$Survived)
+prop.table(table(train$Child, train$Survived), 1)
+
+# Prediction based on gender 
+test_one <- test
+test_one$Survived <- NA
+test_one$Survived[test_one$Sex == 'female'] <- 1 
+test_one$Survived[test_one$Sex == 'male'] <- 0
+
+
+```
+
+
+### Prediction using Decision tree
+
+
+Created a decision tree using rpart function and discovered variables that play an important role whether or not a passenger will survive. Made prediction using the test set and got a result that outperforms a solution using purely gender. To improve the model, manipulated the cp and minisplit in the decision tree. 
+
+cp - determines when the splitting up of the decision tree stops.
+
+minsplit - determines the minimum amount of observations in a leaf of the tree.
+
+The model genarlizes well compared to previous one.
+
+
+```{r, message = FALSE, warning = FALSE}
+# Build the decision tree
+my_tree_two <- rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked, 
+                      data = train, method = "class")
+
+# Visualize the decision tree 
+plot(my_tree_two)
+text(my_tree_two)
+
+# Plot the tree
+fancyRpartPlot(my_tree_two)
+
+# Make prediction using the test set
+my_prediction <- predict(my_tree_two, test, type="class")
+
+# Create a data frame with two columns: PassengerId & Survived. Survived contains predictions
+my_solution <- data.frame(PassengerId = test$PassengerId , Survived = my_prediction)
+
+# Check that data frame has 418 entries
+nrow(my_solution) == 418
+
+# Write solution to a csv file with the name my_solution.csv
+write.csv(my_solution,  file = 'my_solution.csv', row.names = FALSE)
+
+# Create a new decision tree 
+my_tree_three <-   rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked, 
+                          data = train, method = "class", control = rpart.control(minsplit = 50, cp = 0))
+                          rpart.control(cp = 0, minsplit = 50)
+  
+# Visualize new decision tree
+fancyRpartPlot(my_tree_three)
+
+# View my_solution
+my_solution
+```
+
+
+### Improve prediction 
+
+
+To improve prediction, a valid assumption is that larger families need more time to get together on a sinking ship, and hence have less chance of surviving. Family size is determined by the variables SibSp and Parch, which indicate the number of family members a certain passenger is traveling with. So we need to add a new variable family_size, which is the sum of SibSp and Parch plus one (the observation itself), to the test and train set. In model five another important variable 'Title' is added to the decision tree.
+
+
+```{r, message = FALSE, warning = FALSE}
+# Create a new train set with the new variable
+train_two <- train
+train_two$family_size <- train$SibSp + train$Parch + 1
+
+# Create a new decision tree 
+my_tree_four <- rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked + family_size, data = train_two, method = "class", control = rpart.control(minsplit = 50, cp = 0))
+  
+# Visualize new decision tree
+fancyRpartPlot(my_tree_four)
+
+ 
+train_new = all_data[1:891,]
+train_new = subset(train_new , select =  -c(family_size))
+test_new = all_data[892:1309,]
+test_new = subset(test_new , select =  -c(family_size))
+
+# Create a new decision tree
+my_tree_five <- rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked + Title,
+                                     data = train_new, method = 'class')
+
+# Visualize new decision tree
+fancyRpartPlot(my_tree_five)
+
+# Make prediction using `my_tree_five` and `test_new`
+my_prediction <- my_prediction <- predict(my_tree_five, test_new, type = 'class')
+
+# Create a data frame with two columns: PassengerId & Survived. Survived contains predictions
+my_solution2 <- data.frame(PassengerId = test_new$PassengerId, Survived = my_prediction)
+
+# Write solution away to a csv file with the name my_solution.csv
+write.csv(my_solution2, file = 'my_solution2.csv', row.names = FALSE)
+
+# View my_solution2
+my_solution2
+```
+
+
+### Random Forest
+
+
+Random forest technique handles the overfitting problem faced in decision trees. To implement Random Forest all the missing values in the data set should be filled via predicition model. 
+
+
+```{r, message = FALSE, warning = FALSE}
+# All data, both training and test set
+str(all_data)
+
+# Passenger on row 62 and 830 do not have a value for embarkment. 
+# Since many passengers embarked at Southampton, we give them the value S.
+# Code all embarkment codes as factors.
+all_data$Embarked[c(62,830)] = "S"
+all_data$Embarked <- factor(all_data$Embarked)
+
+# Passenger on row 1044 has an NA Fare value. Replace it with the median fare value.
+all_data$Fare[1044] <- median(all_data$Fare, na.rm=TRUE)
+
+# To fill the missing age value
+# Make a prediction of a passengers Age using the other variables and a decision tree model. 
+#  method="anova" is used since we are predicting a continuous variable.
+predicted_age <- rpart(Age ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Title + family_size,
+                       data=all_data[!is.na(all_data$Age),], method="anova")
+all_data$Age[is.na(all_data$Age)] <- predict(predicted_age, all_data[is.na(all_data$Age),])
+
+# Split the data back into a train set and a test set
+train <- all_data[1:891,]
+test <- all_data[892:1309,]
+
+# Set seed for reproducibility
+set.seed(111)
+
+# Apply the Random Forest Algorithm
+my_forest <- randomForest(as.factor(Survived) ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked + Title, 
+                          data=train, importance=TRUE, ntree=1000)
+
+# Make prediction using the test set
+my_prediction <- predict(my_forest, test)
+
+# Create a data frame with two columns: PassengerId & Survived. Survived contains predictions
+my_solution3 <- data.frame(PassengerId = test$PassengerId, Survived = my_prediction)
+
+# Write solution away to a csv file with the name my_solution.csv
+write.csv(my_solution3, file = "my_solution3.csv", row.names = FALSE)
+
+# View my_solution3
+my_solution3
+
+```
+
+
+
